@@ -1,12 +1,14 @@
 from dataclasses import dataclass
 from typing import Optional
 
-import ccxt
 import nolds
 import numpy as np
 import pandas as pd
 from ccxt import Exchange
 from statsmodels.tsa.stattools import adfuller
+
+from src.main.exchange_helper import get_ohlc_data, get_swap_symbols, filter_symbols_by_volume, \
+    filter_symbols_by_volume_range, get_bybit_swap_exchange
 
 LARGE_CAP_VOLUME_USDT = 10_000_000
 MID_CAP_VOLUME_USDT = 2_000_000
@@ -57,64 +59,6 @@ class TickerMetrics:
     def get_print_format(self) -> str:
         return f"symbol: {self.symbol}, is_flat_confirmed: {self.is_flat_confirmed()}, hurst: {self.hurst}, z-score: {self.z_score}, p-value: {self.p_value}, half-live: {self.half_live}, band width z-score: {self.band_width_z_score}"
 
-# ====== Exchange logic ===========
-def get_exchange() -> Exchange:
-    config = {
-        'enableRateLimit': True,
-        'options': {
-            'createMarketBuyOrderRequiresPrice': False,
-            'enableUnifiedAccount': True,
-            'defaultType': 'swap',
-            'fetchMarkets': {
-                'types': ['linear']
-            }
-        }
-    }
-    bybit = ccxt.bybit(config)
-    bybit.load_markets()
-
-    return bybit
-
-def get_swap_symbols(exchange: Exchange):
-    markets = exchange.fetch_markets()
-    return [
-        market['symbol'] for market in markets
-        if market.get('active', False) and market.get('swap', False)
-    ]
-
-def get_ohlc_data(symbol, exchange, timeframe='1h', limit=100) -> pd.DataFrame:
-    ohlc = exchange.fetch_ohlcv(symbol, timeframe, limit)
-    return (pd.DataFrame(ohlc, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
-          .assign(timestamp=lambda x: pd.to_datetime(x['timestamp'], unit='ms'))
-          .set_index('timestamp')
-          #.dropna()
-          .sort_index()
-          )
-
-def filter_symbols_by_volume(exchange: Exchange, symbols: list[str], min_volume_usdt: int) -> list[str]:
-    tickers = exchange.fetch_tickers(symbols)
-    valid_symbols = sorted(
-        [
-            symbol for symbol, data in tickers.items()
-            if data.get('quoteVolume') and data.get('quoteVolume') >= min_volume_usdt
-        ],
-        key=lambda s: tickers[s]['quoteVolume'],
-        reverse=True
-    )
-    return valid_symbols
-
-def filter_symbols_by_volume_range(exchange: Exchange, symbols: list[str], min_volume_usdt: int, max_volume_usdt: int) -> list[str]:
-    tickers = exchange.fetch_tickers(symbols)
-    valid_symbols = sorted(
-        [
-            symbol for symbol, data in tickers.items()
-            if data.get('quoteVolume') and min_volume_usdt <= data.get('quoteVolume') <= max_volume_usdt
-        ],
-        key=lambda s: tickers[s]['quoteVolume'],
-        reverse=True
-    )
-    return valid_symbols
-
 # ====== Screener logic ===========
 def calculate_hurst(prices: pd.Series, window: int) -> float:
     log_ret = np.diff(np.log(prices.tail(window)))
@@ -131,7 +75,7 @@ def calculate_z_score(prices: pd.Series, window: int = 20) -> pd.Series:
     z_score = (prices - sma) / std
     return z_score.fillna(0)
 
-def calculate_adf_pvalue(prices: pd.Series) -> float:
+def calculate_adf_p_value(prices: pd.Series) -> float:
     """
     Возвращает p-value теста Дики-Фуллера.
     Значение < 0.05 означает, что ряд стационарен на 95%.
@@ -217,7 +161,7 @@ def calculate_metrics(symbol: str, exchange: Exchange) -> Optional[TickerMetrics
         p_value = -1
         half_life = -1
         if hurst < HURST_RANGE_VALUE:
-            p_value = calculate_adf_pvalue(closes)
+            p_value = calculate_adf_p_value(closes)
             half_life = calculate_half_life(closes)
         band_width_z_score = calculate_band_width_z_score(closes)
         return TickerMetrics(symbol, hurst, latest_z, p_value, half_life, band_width_z_score)
@@ -272,7 +216,7 @@ def find_coins(symbols_by_volume: list[str], exchange: Exchange):
         print(ticker_metric.get_print_format())
 
 def run():
-    exchange = get_exchange()
+    exchange = get_bybit_swap_exchange()
     print("===== Large Cap Volume =====")
     find_coins(get_large_cap(exchange), exchange)
     print("===== Mid Cap Volume =====")
@@ -283,11 +227,11 @@ def run():
     find_coins(get_lowest_cap(exchange), exchange)
 
 def print_symbols_stats(symbols: list[str]):
-    exchange = get_exchange()
+    exchange = get_bybit_swap_exchange()
     for symbol in symbols:
         print(calculate_metrics(symbol, exchange).get_print_format())
 
 
 if __name__ == "__main__":
-    print_symbols_stats(['BTR/USDT:USDT', 'BABA/USDT:USDT', 'CYS/USDT:USDT', 'SPX/USDT:USDT'])
-    #run()
+    #print_symbols_stats(['BTR/USDT:USDT', 'BABA/USDT:USDT', 'CYS/USDT:USDT', 'SPX/USDT:USDT'])
+    run()
