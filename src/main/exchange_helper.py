@@ -19,6 +19,15 @@ def get_bybit_swap_exchange() -> Exchange:
 
     return bybit
 
+def get_swap_symbols_by_quote(exchange: Exchange, allowed_quotes=None) -> list[str]:
+    if allowed_quotes is None:
+        allowed_quotes = ['USDT']
+    markets = exchange.fetch_markets()
+    return [
+        market['symbol'] for market in markets
+        if market.get('active', False) and market.get('swap', False) and market.get('quote') in allowed_quotes
+    ]
+
 def get_swap_symbols(exchange: Exchange):
     markets = exchange.fetch_markets()
     return [

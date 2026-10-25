@@ -33,5 +33,10 @@ deactivate
 
 ### 5. How to run console app
 ```
-python -m src.main.screener
+python -m src.main.volatility_squeeze_screener
+python -m src.main.correlation_screener
+python -m src.main.сross_sectional_momentum
+python -m src.main.ratio.ratio_screener
+python -m src.main.ratio.relative_strength
+
 ```
